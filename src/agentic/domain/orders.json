@@ -1,0 +1,62 @@
+[
+  {
+    "order_id": "A1001",
+    "customer": "Ana Torres",
+    "product": "Soporte de laptop",
+    "category": "home-office",
+    "amount": 45.9,
+    "status": "delivered",
+    "delivered_at": "2026-09-10",
+    "refunded": false
+  },
+  {
+    "order_id": "A1002",
+    "customer": "Luis Paredes",
+    "product": "Audifonos inalambricos",
+    "category": "audio",
+    "amount": 129.0,
+    "status": "delivered",
+    "delivered_at": "2026-07-01",
+    "refunded": false
+  },
+  {
+    "order_id": "A1003",
+    "customer": "Maria Quispe",
+    "product": "Teclado mecanico",
+    "category": "home-office",
+    "amount": 89.5,
+    "status": "shipped",
+    "delivered_at": null,
+    "refunded": false
+  },
+  {
+    "order_id": "A1004",
+    "customer": "Jorge Rios",
+    "product": "E-book Python avanzado",
+    "category": "digital",
+    "amount": 12.5,
+    "status": "delivered",
+    "delivered_at": "2026-09-20",
+    "refunded": false
+  },
+  {
+    "order_id": "A1005",
+    "customer": "Carla Mendoza",
+    "product": "Monitor 27 pulgadas",
+    "category": "electronics",
+    "amount": 349.0,
+    "status": "delivered",
+    "delivered_at": "2026-09-15",
+    "refunded": false
+  },
+  {
+    "order_id": "A1006",
+    "customer": "Diego Salas",
+    "product": "Mochila urbana",
+    "category": "accessories",
+    "amount": 59.9,
+    "status": "delivered",
+    "delivered_at": "2026-09-05",
+    "refunded": true
+  }
+]

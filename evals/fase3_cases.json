@@ -1,0 +1,127 @@
+[
+  {
+    "id": "01-plazo",
+    "description": "Pregunta de politica: responde con RAG y cita",
+    "turns": [
+      {"user": "Cuantos dias tengo para devolver un producto?",
+       "route_any": ["policies"],
+       "must_call": ["search_policies"],
+       "retrieves_any": ["reembolsos#plazo-para-solicitar-un-reembolso"],
+       "mention_any": ["30"],
+       "cites_any": ["reembolsos#plazo"]}
+    ],
+    "refunds": [[]]
+  },
+  {
+    "id": "02-acreditacion-tarjeta",
+    "description": "Tiempo de acreditacion con tarjeta",
+    "turns": [
+      {"user": "Si me aprueban un reembolso, en cuanto tiempo llega a mi tarjeta?",
+       "route_any": ["policies"],
+       "must_call": ["search_policies"],
+       "retrieves_any": ["pagos#tiempo-de-acreditacion-del-reembolso"],
+       "mention_all": ["5", "10"],
+       "cites_any": ["pagos#"]}
+    ],
+    "refunds": [[]]
+  },
+  {
+    "id": "03-ebook-generico",
+    "description": "Politica de productos digitales sin pedido concreto",
+    "turns": [
+      {"user": "Se puede devolver un e-book?",
+       "route_any": ["policies"],
+       "must_call": ["search_policies"],
+       "must_not_call": ["create_refund_request"],
+       "retrieves_any": ["reembolsos#productos-no-reembolsables"],
+       "mention_any": ["digital", "no admite", "no se puede", "no es posible"]}
+    ],
+    "refunds": [[]]
+  },
+  {
+    "id": "04-pixel-muerto",
+    "description": "Detalle especifico de garantia",
+    "turns": [
+      {"user": "Mi monitor tiene 1 pixel muerto en una esquina, eso cuenta como defecto?",
+       "route_any": ["policies"],
+       "must_call": ["search_policies"],
+       "retrieves_any": ["garantia#pixeles-muertos-en-monitores"],
+       "mention_any": ["3"]}
+    ],
+    "refunds": [[]]
+  },
+  {
+    "id": "05-fuera-de-base",
+    "description": "Pregunta sin respuesta en la base: no debe inventar",
+    "turns": [
+      {"user": "Tienen descuentos para estudiantes?",
+       "route_any": ["policies", "general"],
+       "mention_any": ["no tengo", "no cuento", "no dispongo", "no encuentro", "no hay informacion",
+                       "no tenemos informacion", "humano", "no se menciona", "no aparece"]}
+    ],
+    "refunds": [[]]
+  },
+  {
+    "id": "06-envio-internacional",
+    "description": "Respuesta negativa presente en la base",
+    "turns": [
+      {"user": "Hacen envios a Chile?",
+       "route_any": ["policies"],
+       "must_call": ["search_policies"],
+       "mention_any": ["internacional"]}
+    ],
+    "refunds": [[]]
+  },
+  {
+    "id": "07-politica-luego-reembolso",
+    "description": "De pregunta de politica a reembolso concreto (cambio de agente)",
+    "turns": [
+      {"user": "Cual es el plazo para devolver algo?",
+       "route_any": ["policies"],
+       "must_call": ["search_policies"]},
+      {"user": "Ok, quiero devolver el pedido A1001, llego rayado",
+       "route_any": ["refunds"],
+       "must_call": ["check_refund_eligibility"],
+       "must_not_call": ["create_refund_request"]}
+    ],
+    "refunds": [[]]
+  },
+  {
+    "id": "08-pregunta-en-medio-del-reembolso",
+    "description": "Pregunta de politica en medio del flujo de reembolso y luego confirma",
+    "turns": [
+      {"user": "Quiero devolver el A1001, llego rayado",
+       "route_any": ["refunds"],
+       "must_not_call": ["create_refund_request"]},
+      {"user": "Antes de confirmar: si pague con PayPal, en cuanto tiempo me devuelven el dinero?",
+       "must_call": ["search_policies"],
+       "must_not_call": ["create_refund_request"],
+       "mention_all": ["3", "5"]},
+      {"user": "Perfecto, si confirmo el reembolso",
+       "route_any": ["refunds"],
+       "must_call": ["create_refund_request"]}
+    ],
+    "refunds": [["approved"]]
+  },
+  {
+    "id": "09-escalar-humano",
+    "description": "Pide hablar con una persona",
+    "turns": [
+      {"user": "Quiero hablar con una persona, no con un bot",
+       "route_any": ["policies", "general"],
+       "mention_any": ["24", "ticket", "humano", "agente"]}
+    ],
+    "refunds": [[]]
+  },
+  {
+    "id": "10-seguridad",
+    "description": "Posible fraude: la base indica que nunca se piden contrasenas",
+    "turns": [
+      {"user": "Alguien de la tienda me pidio mi contrasena por correo, es normal?",
+       "route_any": ["policies"],
+       "must_call": ["search_policies"],
+       "mention_any": ["nunca"]}
+    ],
+    "refunds": [[]]
+  }
+]

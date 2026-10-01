@@ -1,0 +1,68 @@
+name: ai-agentic
+
+services:
+  # Servidor de modelos local (CPU). Para GPU NVIDIA ver docs/fase-00-setup.md
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    environment:
+      # Mantiene los modelos cargados entre llamadas (evita recargar chat/embeddings en cada turno)
+      OLLAMA_KEEP_ALIVE: 30m
+    volumes:
+      - ollama_data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # Job de una sola ejecucion: descarga los modelos definidos en .env
+  ollama-pull:
+    image: ollama/ollama:latest
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        ollama pull ${OLLAMA_MODEL:-qwen3.5:4b} &&
+        ollama pull ${OLLAMA_FALLBACK_MODEL:-granite4.1:3b} &&
+        ollama pull ${OLLAMA_EMBED_MODEL:-qwen3-embedding:0.6b}
+    volumes:
+      - ollama_data:/root/.ollama
+
+  # Vector DB (Fase 3). Dashboard: http://localhost:6333/dashboard
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+
+  # Contenedor de trabajo: ejecuta scripts y tests de cada fase
+  app:
+    build: .
+    env_file: .env
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      QDRANT_URL: http://qdrant:6333
+    volumes:
+      - ./:/app
+    depends_on:
+      ollama-pull:
+        condition: service_completed_successfully
+      qdrant:
+        condition: service_started
+    stdin_open: true
+    tty: true
+
+volumes:
+  ollama_data:
+  qdrant_data:

@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "agentic"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+agentic = ["domain/*.json"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+filterwarnings = [
+    # warnings internos de langgraph 1.0, no del proyecto (pytest reinicia los filtros de src/agentic/__init__.py)
+    "ignore:The default value of `allowed_objects`",
+    "ignore:AgentStatePydantic has been moved",
+]

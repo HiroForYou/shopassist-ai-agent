@@ -1,0 +1,12 @@
+# Fase 0-1
+langchain-core>=0.3,<0.4
+langchain-ollama>=0.2,<0.4
+langgraph>=0.2
+langsmith>=0.2
+pydantic>=2.7
+pydantic-settings>=2.3
+python-dotenv>=1.0
+pytest>=8.0
+
+# Fase 3
+qdrant-client>=1.12
