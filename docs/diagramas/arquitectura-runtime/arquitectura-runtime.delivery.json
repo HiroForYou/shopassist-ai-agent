@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "59bcfa41-4c2e-46b9-842d-88561d75d5f6",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "C:\\Users\\CristhianSanchez(Con\\Downloads\\self-learn\\ai-agentic\\docs\\diagramas\\arquitectura-runtime\\candidate.json",
+  "output": "C:\\Users\\CristhianSanchez(Con\\Downloads\\self-learn\\ai-agentic\\docs\\diagramas\\arquitectura-runtime\\arquitectura-runtime.html",
+  "specification": {
+    "sha256": "1e202b322639a03bdf86232d143c6e028f9a7d552ba7a6f41a2586945a4a3f3a",
+    "bytes": 38125
+  },
+  "artifact": {
+    "sha256": "1318fae3ca3b36e31b46d9d2af77e3550f43654f1a7a942b2302c7df13fde7f3",
+    "bytes": 780697
+  }
+}

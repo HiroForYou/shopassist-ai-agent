@@ -30,7 +30,8 @@ def main() -> None:
     args = parser.parse_args()
 
     e2e = [case_to_example(c, "f2") for c in load("fase2_cases.json")] + \
-          [case_to_example(c, "f3") for c in load("fase3_cases.json")]
+          [case_to_example(c, "f3") for c in load("fase3_cases.json")] + \
+          [case_to_example(c, "f6") for c in load("fase6_cases.json")]
     retrieval = [retrieval_to_example(c) for c in load("fase3_retrieval.json")]
     datasets = [
         (E2E_DATASET, "Conversaciones multi-turno de ShopAssist con spec de checks (Fases 2-3)", e2e),

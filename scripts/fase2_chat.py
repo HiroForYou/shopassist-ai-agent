@@ -7,12 +7,12 @@ Comandos: /nuevo (nueva conversacion), /estado (estado del grafo), salir
 """
 
 from agentic.evalkit import print_step
-from agentic.llm import get_chat_model
+from agentic.llm import get_resilient_chat_model
 from agentic.multiagent import ShopAssistChat, build_graph
 
 
 def main() -> None:
-    chat = ShopAssistChat(build_graph(get_chat_model()))
+    chat = ShopAssistChat(build_graph(get_resilient_chat_model()))
     thread = chat.new_thread()
     print(f"ShopAssist multi-agent | thread {thread}\nComandos: /nuevo, /estado, salir\n")
 

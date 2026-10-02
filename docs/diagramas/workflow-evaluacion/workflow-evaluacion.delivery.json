@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "812b4d91-f996-4c3a-9a4c-b019d149d1d2",
+  "status": "current",
+  "command": "deliver",
+  "type": "workflow",
+  "input": "C:\\Users\\CristhianSanchez(Con\\Downloads\\self-learn\\ai-agentic\\docs\\diagramas\\workflow-evaluacion\\candidate.json",
+  "output": "C:\\Users\\CristhianSanchez(Con\\Downloads\\self-learn\\ai-agentic\\docs\\diagramas\\workflow-evaluacion\\workflow-evaluacion.html",
+  "specification": {
+    "sha256": "e8ed468d11826c65ded30a3a769a68269fd20dcc074e64e64f8fd812f63ad388",
+    "bytes": 35557
+  },
+  "artifact": {
+    "sha256": "fddd1d49f43446b0bb6f90d89e49df44511d0a5ff4551187a8184c62c9d8eace",
+    "bytes": 766121
+  }
+}

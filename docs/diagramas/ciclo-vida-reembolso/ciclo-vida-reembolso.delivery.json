@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "7675f382-403e-47b9-b08c-c70fa4c7c024",
+  "status": "current",
+  "command": "deliver",
+  "type": "lifecycle",
+  "input": "C:\\Users\\CristhianSanchez(Con\\Downloads\\self-learn\\ai-agentic\\docs\\diagramas\\ciclo-vida-reembolso\\candidate.json",
+  "output": "C:\\Users\\CristhianSanchez(Con\\Downloads\\self-learn\\ai-agentic\\docs\\diagramas\\ciclo-vida-reembolso\\ciclo-vida-reembolso.html",
+  "specification": {
+    "sha256": "d59888b758e918cebc6c931c21341589c0158759f2206b3e78b04467dd91df24",
+    "bytes": 34196
+  },
+  "artifact": {
+    "sha256": "65b983bc3ab789f9d7bd15eac24b4bcb05c246f5f0f602fe4d315e3edd05adb4",
+    "bytes": 769719
+  }
+}

@@ -1,122 +1,104 @@
-# Fase 3 — RAG
+# Fase 3: RAG
 
-## Objetivo
+Respuestas sobre políticas de la tienda a partir de una base de conocimiento, con cita de la fuente y sin inventar
+cuando la información no existe.
 
-Responder preguntas sobre politicas de la tienda con informacion recuperada de una base de conocimiento,
-citando la fuente y sin inventar cuando la respuesta no existe.
+Código: [rag.py](../src/agentic/rag.py) · Base: [knowledge/](../knowledge/) · Agente: `policy_agent` en [multiagent.py](../src/agentic/multiagent.py)
 
 ## Pipeline
 
 ```
 knowledge/*.md ──chunk por "##"──> 23 chunks ──qwen3-embedding:0.6b──> Qdrant (coseno)
                                                                           │
-pregunta ──instruccion + embed_query──> busqueda top-k + umbral ──────────┘──> search_policies ──> policy_agent
+pregunta ──instrucción + embed_query──> búsqueda top-k + umbral ──────────┘──> search_policies ──> policy_agent
 ```
 
-Codigo: [rag.py](../src/agentic/rag.py) · Base: [knowledge/](../knowledge/) · Agente: `policy_agent` en [multiagent.py](../src/agentic/multiagent.py)
-
-| Componente | Decision | Motivo |
+| Componente | Decisión | Motivo |
 |---|---|---|
-| Chunking | Una seccion `##` = un chunk (100-300 caracteres) | Las secciones ya son unidades semanticas; el id `archivo#seccion` sirve como cita. |
-| Contexto del chunk | Se embebe `"<titulo> - <seccion>\n<texto>"` | Una seccion suelta pierde de que documento viene ("Plazo" de que?). |
-| Embeddings | `qwen3-embedding:0.6b` via Ollama | Multilingue, ~640 MB, corre en CPU. Alternativa para comparar: `bge-m3`. |
-| Instruccion en la consulta | `Instruct: ...\nQuery: <pregunta>` solo en consultas | qwen3-embedding esta entrenado asi (asimetrico); medir el efecto con `--no-instruction`. |
-| Vector DB | Qdrant, distancia coseno, ids `uuid5(chunk_id)` | Ingesta idempotente: reindexar no duplica puntos. |
-| Recuperacion | `top_k=3`, `score_threshold=0.40` | El umbral filtra preguntas ajenas; calibrado con la eval de retrieval. |
-| Generacion | `policy_agent`: siempre busca, cita `[fuente]`, "no tengo esa informacion" si no hay | Control de alucinaciones en el prompt; se medira con LLM-as-judge en Fase 4. |
-| Trazas | `KnowledgeBase.search` con `@traceable(run_type="retriever")` | LangSmith muestra los documentos recuperados y sus scores en cada traza. |
+| Chunking | Una sección `##` por chunk (100-300 caracteres) | Las secciones son unidades semánticas; el ID `archivo#seccion` sirve como cita |
+| Contexto del chunk | Se embebe `"<título> - <sección>\n<texto>"` | Una sección aislada pierde el documento al que pertenece |
+| Embeddings | `qwen3-embedding:0.6b` vía Ollama | Multilingüe, ~640 MB, corre en CPU; alternativa evaluable `bge-m3` |
+| Instrucción en la consulta | `Instruct: ...\nQuery: <pregunta>` solo en consultas | Modelo entrenado de forma asimétrica; efecto medible con `--no-instruction` |
+| Base vectorial | Qdrant, coseno, IDs `uuid5(chunk_id)` | Ingesta idempotente: reindexar no duplica puntos |
+| Recuperación | `top_k=3`, `score_threshold=0.40` | Umbral calibrado con la evaluación de retrieval |
+| Generación | `policy_agent` siempre busca, cita `[fuente]` y responde "no tengo esa información" si no hay respaldo | Control de alucinaciones en el prompt; medido con LLM-as-judge (Fase 4) |
+| Trazas | `KnowledgeBase.search` con `@traceable(run_type="retriever")` | LangSmith muestra documentos y scores por búsqueda |
 
-## Integracion multi-agent
+Base de conocimiento: `reembolsos.md`, `pagos.md`, `envios.md`, `garantia.md`, `atencion.md`.
 
-- El router suma la ruta `policies`: preguntas generales sin pedido concreto.
-- `orders_agent` y `refunds_agent` pueden transferir a `policy_agent` (p. ej. "¿en cuanto tiempo me devuelven el dinero?"
-  en medio de un reembolso), y `policy_agent` transfiere a `refunds_agent` / `orders_agent` si hay un pedido concreto.
-- "¿Se puede devolver un e-book?" → `policies` (regla general). "¿Puedo devolver el A1004?" → `refunds` (pedido concreto,
-  decide `policy.py`, no el RAG). La base documenta las reglas; la decision sobre un pedido sigue siendo deterministica.
+## Integración con el grafo
 
-## Ejecucion
+| Mensaje | Ruta | Quién decide |
+|---|---|---|
+| "Se puede devolver un e-book" (regla general) | `policies` | RAG |
+| "Puedo devolver el A1004" (pedido concreto) | `refunds` | `policy.py` |
+| "En cuánto tiempo me devuelven el dinero" durante un reembolso | handoff a `policy_agent` | RAG |
+
+La base documenta las reglas; la decisión sobre un pedido concreto sigue siendo determinista.
+
+## Ejecución
 
 ```powershell
-docker compose build app                          # nueva dependencia: qdrant-client
-docker compose up -d ollama qdrant
-docker compose run --rm ollama-pull               # agrega qwen3-embedding:0.6b
-docker compose run --rm app python scripts/fase3_ingest.py
-docker compose run --rm app python scripts/fase0_healthcheck.py
-
-# evaluacion de retrieval (rapida: solo embeddings)
-docker compose run --rm app python scripts/fase3_eval.py retrieval
+docker compose run --rm app python scripts/fase3_ingest.py               # reindexar tras editar knowledge/
+docker compose run --rm app python scripts/fase3_eval.py retrieval       # solo embeddings, rápido
 docker compose run --rm app python scripts/fase3_eval.py retrieval --no-instruction
-
-# evaluacion end-to-end (sistema completo)
-docker compose run --rm app python scripts/fase3_eval.py e2e
-
-# chat (incluye policy_agent)
-docker compose run --rm app python scripts/fase2_chat.py
+docker compose run --rm app python scripts/fase3_eval.py e2e             # sistema completo, 10 casos
+docker compose run --rm app pytest -q tests/test_rag.py                  # Qdrant en memoria, sin Ollama
 ```
 
-Dashboard de Qdrant: http://localhost:6333/dashboard (coleccion `shop_policies`, puntos y payloads).
+## Evaluación de retrieval
 
-## Evaluacion en dos niveles
+Dataset: [fase3_retrieval.json](../evals/fase3_retrieval.json). 22 preguntas parafraseadas con sus chunks esperados y
+8 sin respuesta en la base (5 del dominio de la tienda, 3 ajenas).
 
-**Retrieval** ([fase3_retrieval.json](../evals/fase3_retrieval.json)): 22 preguntas parafraseadas con su(s) chunk(s)
-esperado(s) y 8 sin respuesta: 5 del dominio de la tienda (`scope: dominio`) y 3 ajenas (`scope: fuera-dominio`).
-
-| Metrica | Significado |
+| Métrica | Definición |
 |---|---|
-| hit@1 | El chunk correcto es el primero |
-| hit@k | El chunk correcto esta entre los k recuperados (lo que ve el LLM) |
-| MRR | Media de 1/posicion del chunk correcto; penaliza que aparezca abajo |
-| Calibracion | Compara el score del chunk **esperado** (no el top-1) con el top-1 de preguntas sin respuesta; exige margen >= 0.05 |
+| hit@1 | El chunk esperado es el primero |
+| hit@k | El chunk esperado está entre los k recuperados (lo que recibe el LLM) |
+| MRR | Media de 1/posición del chunk esperado |
+| Calibración | Score del chunk esperado vs top-1 de preguntas sin respuesta; margen mínimo de 0.05 para sugerir umbral |
 
-Separar retrieval de generacion permite ubicar el fallo: si hit@k es bajo, el problema es chunking/embeddings;
-si hit@k es alto y la respuesta es mala, el problema es el prompt o el modelo.
+Un hit@k bajo indica un problema de chunking o embeddings; un hit@k alto con respuestas malas indica un problema de
+prompt o de modelo.
 
-### Resultado de referencia y lecciones (primera corrida)
+| Corrida | hit@1 | hit@3 | MRR |
+|---|---|---|---|
+| Inicial | 0.82 | 1.00 | 0.90 |
+| Con sinónimos y etiquetas múltiples | 0.86 | 1.00 | 0.93 |
 
-hit@1 = 0.82 · hit@3 = 1.00 · MRR = 0.90 (qwen3-embedding:0.6b, con instruccion).
-
-| Hallazgo | Accion |
+| Hallazgo | Acción |
 |---|---|
-| hit@3 = 1.00: el LLM siempre recibe el chunk correcto | Retrieval suficiente; los fallos futuros apuntan a generacion |
-| `r13` "¿Cobran delivery?": el termino no existe en la base ("envio"); score del esperado 0.42 | Sinonimos en `envios.md` (vocabulary mismatch: se corrige en el contenido) |
-| `r17`, `r19`: dos chunks responden la pregunta; la etiqueta solo aceptaba uno | `expected` con varios chunks (calidad del dataset de eval) |
-| Preguntas sin respuesta del dominio (0.46-0.49) puntuan como las que si tienen (min 0.42) | La similitud mide cercania tematica, no si la respuesta existe: el umbral no las detecta, lo hace el prompt |
-| Preguntas ajenas (ceviche: 0.24) quedan lejos | Umbral 0.40: descarta lo ajeno sin perder chunks esperados |
-| La calibracion inicial usaba el top-1 con acierto y sugeria 0.49 | Con 0.49 "¿Cobran delivery?" quedaba sin contexto; corregido para usar el score del chunk esperado |
+| "Cobran delivery": el término no existía en la base ("envío"); score del esperado 0.42 | Sinónimos en `envios.md` |
+| Dos preguntas con dos chunks válidos y una sola etiqueta | `expected` con varios chunks |
+| Preguntas sin respuesta del dominio (top-1 de 0.37-0.54) puntúan como las que sí tienen respuesta (mínimo 0.485) | La similitud mide cercanía temática, no disponibilidad de la respuesta: lo resuelve el prompt ("no tengo esa información") |
+| "Cómo estará el clima en Lima mañana" puntúa 0.605 contra `envios#tiempos-de-entrega` | Los temas ajenos los filtra el router antes del RAG |
+| La calibración inicial usaba el top-1 con acierto y sugería 0.49, que dejaba sin contexto a "Cobran delivery" | Calibración con el score del chunk esperado; umbral 0.40 |
 
-Tras editar `knowledge/` hay que reindexar (`fase3_ingest.py`) antes de volver a evaluar.
+## Evaluación end-to-end
 
-Segunda corrida (con sinonimos y etiquetas multiples): hit@1 = 0.86 · hit@3 = 1.00 · MRR = 0.93. Hallazgo: "¿Como estara
-el clima en Lima manana?" puntua 0.605 contra `envios#tiempos-de-entrega` ("Lima", "tiempo"): ni siquiera lo ajeno es
-siempre separable por score. Filtrar temas ajenos es responsabilidad del router, antes del RAG (defensa en capas).
+Dataset: [fase3_cases.json](../evals/fase3_cases.json). Checks adicionales por turno: `retrieves_any` (el chunk esperado
+aparece en la salida de `search_policies`) y `cites_any` (la respuesta cita la fuente).
 
-### E2E: resultado de referencia (primera corrida)
+| Corrida | Casos OK |
+|---|---|
+| Inicial | 6/10 |
+| Router con reglas ampliadas y ejemplos | 8/10 |
+| Baseline de la Fase 4 (incluye la regla de descuentos) | 9/10; el caso restante se resuelve con el guard de tools (Fase 6) |
 
-6/10 PASS. RAG correcto donde se uso: citas validas, "no tengo esa informacion" ante contexto irrelevante (caso 05).
-
-| Fallo | Causa | Accion |
+| Fallo inicial | Causa | Acción |
 |---|---|---|
-| 02 tiempo de acreditacion → `refunds` | El router se guio por la palabra "reembolso" | Regla "pregunta COMO funciona → policies" + ejemplos few-shot |
-| 09 hablar con una persona, 10 seguridad → `general` | El prompt del router no listaba atencion humana ni seguridad en `policies` | Categorias ampliadas + ejemplos few-shot |
-| 09/10 respuesta generica pobre | `reply` vacio en ruta `general` | `DEFAULT_GENERAL_REPLY` con la oferta de ayuda completa |
-| 08 T1 crea el reembolso sin confirmar | Misma regresion que Fase 2 caso 05 | Fase 6 (gate deterministico). En T3 la re-validacion de la tool evito un reembolso duplicado |
-| Router 70 s en la primera llamada | Arranque en frio de Ollama | `warm_up()` antes de medir en todos los evaluadores |
+| Tiempo de acreditación enviado a `refunds` | El router se guiaba por la palabra "reembolso" | Regla "pregunta sobre cómo funciona algo → policies" y ejemplos few-shot |
+| Hablar con una persona y seguridad enviados a `general` | Categorías incompletas en el prompt del router | Categorías ampliadas |
+| Respuesta genérica pobre en `general` | `reply` vacío | `DEFAULT_GENERAL_REPLY` |
+| Router de 70 s en la primera llamada | Arranque en frío de Ollama | `warm_up()` antes de medir en todos los evaluadores |
+| Descuentos para estudiantes enviados a `general` tras agregar ejemplos | Regresión introducida por los ejemplos | "Cualquier pregunta sobre la tienda → policies"; ejemplo nuevo que no está en los datasets |
 
-**End-to-end** ([fase3_cases.json](../evals/fase3_cases.json)): 10 casos. Checks nuevos por turno:
-`retrieves_any` (el chunk esperado aparece en la salida de `search_policies`) y `cites_any` (la respuesta cita la fuente).
+Los ejemplos few-shot no repiten preguntas de los datasets de evaluación (evita data leakage).
 
-## Ejercicios
+## Extensiones
 
-1. Correr `retrieval` con y sin `--no-instruction`; comparar hit@1 y MRR.
-2. Subir `RAG_SCORE_THRESHOLD` a 0.49 y repetir retrieval: observar que chunks esperados se pierden.
-3. Cambiar `OLLAMA_EMBED_MODEL=bge-m3`, reindexar y comparar metricas (el tamano del vector cambia: la ingesta recrea la coleccion).
-4. Agregar un documento `knowledge/cambios.md` (cambio de producto por otra talla), reindexar y crear 3 casos de retrieval.
-5. Probar chunks mas grandes (documento completo) y observar la caida de hit@1 y el aumento de tokens de entrada.
-
-## Checklist
-
-- [ ] Explicar el pipeline de ingesta y de consulta, y por que son asimetricos (instruccion solo en la consulta).
-- [ ] Justificar la estrategia de chunking y el encabezado contextual.
-- [ ] Explicar hit@k vs MRR y como se calibra un umbral de similitud.
-- [ ] Diferenciar un fallo de retrieval de uno de generacion con datos de la eval.
-- [ ] Explicar por que la elegibilidad de un pedido concreto no se decide con RAG.
+| Extensión | Descripción |
+|---|---|
+| Otro modelo de embeddings | `OLLAMA_EMBED_MODEL=bge-m3`, reindexar y comparar métricas |
+| Nuevo documento | `knowledge/cambios.md` (cambio por talla) con 3 casos de retrieval |
+| Chunks más grandes | Documento completo por chunk: efecto en hit@1 y tokens de entrada |

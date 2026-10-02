@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "a95c2058-27e2-49e2-85cb-aa6c84fbe581",
+  "status": "current",
+  "command": "deliver",
+  "type": "sequence",
+  "input": "C:\\Users\\CristhianSanchez(Con\\Downloads\\self-learn\\ai-agentic\\docs\\diagramas\\secuencia-turno1-bloqueo\\candidate.json",
+  "output": "C:\\Users\\CristhianSanchez(Con\\Downloads\\self-learn\\ai-agentic\\docs\\diagramas\\secuencia-turno1-bloqueo\\secuencia-turno1-bloqueo.html",
+  "specification": {
+    "sha256": "4673d86ac6247235fedf8d21d5d272a56ca4a1754afb230160a5738289743103",
+    "bytes": 35479
+  },
+  "artifact": {
+    "sha256": "0b9f904973a6afc86dda1c5941c78ac714bc543873e08a117c02bde7526a3517",
+    "bytes": 767004
+  }
+}

@@ -57,7 +57,10 @@ def print_step(step: dict) -> None:
         print(f"  [ROUTER:{step.get('source', 'llm')}] {step.get('latency_s', 0)}s | tokens {step.get('tokens_in')}"
               f" -> {step.get('tokens_out')} | -> {step['route']} | {shorten(step['reason'], 200)}")
     elif kind == "tool":
-        print(f"    [TOOL] {step['name']} -> {shorten(step['output'])}")
+        tag = "BLOQUEADA" if step.get("blocked") else "TOOL"
+        print(f"    [{tag}] {step['name']} -> {shorten(step['output'])}")
+    elif kind == "guardrail":
+        print(f"  [GUARDRAIL {step['layer']}:{step['action']}] {shorten(step['reason'], 200)}")
     elif kind == "llm":
         who = f"LLM {step['agent']}" if step.get("agent") else "LLM"
         print(f"  [{who}] {step['latency_s']}s | tokens {step['tokens_in']} -> {step['tokens_out']}")
@@ -87,6 +90,8 @@ def turn_checks(spec: dict, answer: str, called: list[str], route: str | None = 
         checks.append(("content", f"menciona alguno de {kws}", any(normalize(k) in norm for k in kws)))
     if kws := spec.get("mention_all"):
         checks.append(("content", f"menciona todos {kws}", all(normalize(k) in norm for k in kws)))
+    if kws := spec.get("must_not_mention"):
+        checks.append(("content", f"no menciona {kws}", not any(normalize(k) in norm for k in kws)))
     if sources := spec.get("retrieves_any"):
         checks.append(("retrieval", f"recupera alguna de {sources}", any(s in retrieved_text for s in sources)))
     if sources := spec.get("cites_any"):

@@ -31,7 +31,7 @@ from agentic.experiments import (
     save_report,
 )
 from agentic.judges import get_judge_llm, judge_evaluators
-from agentic.llm import get_chat_model
+from agentic.llm import get_chat_model, get_resilient_chat_model, model_digests
 from agentic.multiagent import ShopAssistChat, build_graph, prompt_version
 from agentic.rag import KnowledgeBase
 
@@ -63,7 +63,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Experimento LangSmith (Fase 4)")
     parser.add_argument("dataset", choices=["e2e", "retrieval"])
     parser.add_argument("--prefix", default="exp", help="prefijo del experimento (baseline, fix-router, ...)")
-    parser.add_argument("--suite", choices=["f2", "f3"], help="e2e: solo una suite")
+    parser.add_argument("--suite", choices=["f2", "f3", "f6"], help="e2e: solo una suite")
     parser.add_argument("--cases", nargs="*", default=[], help="prefijos de case_id (ej. f2-05 f3-08)")
     parser.add_argument("--repetitions", type=int, default=1, help="repeticiones por ejemplo (consistencia)")
     parser.add_argument("--no-judge", action="store_true", help="e2e: sin LLM-as-judge (mucho mas rapido)")
@@ -74,6 +74,8 @@ def main() -> None:
     parser.add_argument("--local", action="store_true", help="no sube resultados a LangSmith (solo reporte local)")
     parser.add_argument("--router-mode", choices=["llm", "hybrid"], default=None,
                         help="e2e: router solo LLM (baseline) o hibrido reglas+LLM (Fase 5). Default: ROUTER_MODE")
+    parser.add_argument("--guardrails", choices=["on", "off"], default=None,
+                        help="e2e: guardrails de Fase 6 activos o no (A/B). Default: GUARDRAILS_ENABLED")
     args = parser.parse_args()
 
     s = get_settings()
@@ -87,13 +89,17 @@ def main() -> None:
         metrics = ("hit@1", "hit@k", "reciprocal_rank", "no_answer_top_score")
     else:
         examples = select_examples(client, E2E_DATASET, args.suite, args.cases)
-        llm = get_chat_model(fallback=args.fallback, **({"reasoning": True} if args.reasoning else {}))
+        overrides = {"reasoning": True} if args.reasoning else {}
         router_mode = args.router_mode or s.router_mode
-        chat = ShopAssistChat(build_graph(llm, kb=kb, router_mode=router_mode))
+        guardrails = s.guardrails_enabled if args.guardrails is None else args.guardrails == "on"
+        # con guardrails el agente usa reintento + fallback; sin guardrails, el modelo directo (comportamiento previo)
+        llm = (get_resilient_chat_model(**overrides) if guardrails and not args.fallback
+               else get_chat_model(fallback=args.fallback, **overrides))
+        chat = ShopAssistChat(build_graph(llm, kb=kb, router_mode=router_mode, guardrails=guardrails))
         target, evaluators = make_e2e_target(chat), [heuristic_evaluator, refund_process_evaluator]
         meta = {"model": llm.model, "reasoning": llm.reasoning, "embed_model": s.ollama_embed_model,
                 "prompt_version": prompt_version(), "rag_threshold": s.rag_score_threshold,
-                "router_mode": router_mode}
+                "router_mode": router_mode, "guardrails": guardrails}
         if not args.no_judge:
             judge_llm = get_judge_llm(args.judge_model, True if args.judge_reasoning else None)
             evaluators += judge_evaluators(judge_llm)
@@ -101,7 +107,9 @@ def main() -> None:
         warm_up(llm, kb.embeddings)
         metrics = TABLE_METRICS
 
-    meta |= {"dataset": args.dataset, "repetitions": args.repetitions, "examples": len(examples)}
+    used = [m for m in (meta.get("model"), meta.get("judge_model"), s.ollama_embed_model) if m]
+    meta |= {"dataset": args.dataset, "repetitions": args.repetitions, "examples": len(examples),
+             "model_digests": model_digests(list(dict.fromkeys(used)))}
     print("Experimento: " + " | ".join(f"{k}={v}" for k, v in meta.items()))
 
     results = evaluate(

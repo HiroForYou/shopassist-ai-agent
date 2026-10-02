@@ -38,7 +38,15 @@ def main() -> None:
 
     base, cand = load(args.baseline), load(args.candidate)
     print(f"Baseline : {args.baseline.name} | {base.get('experiment')} | prompts {base.get('prompt_version')} | {base.get('model')}")
-    print(f"Candidate: {args.candidate.name} | {cand.get('experiment')} | prompts {cand.get('prompt_version')} | {cand.get('model')}\n")
+    print(f"Candidate: {args.candidate.name} | {cand.get('experiment')} | prompts {cand.get('prompt_version')} | {cand.get('model')}")
+    print(f"Router   : {base.get('router_mode', 'llm')} -> {cand.get('router_mode', 'llm')}")
+    bd, cd = base.get("model_digests"), cand.get("model_digests")
+    if not bd or not cd:
+        print("AVISO: un reporte no registra model_digests; no se puede garantizar que usen los mismos pesos.\n")
+    else:
+        changed = {m: (bd.get(m), cd.get(m)) for m in set(bd) | set(cd) if bd.get(m) != cd.get(m)}
+        print("AVISO: cambiaron los pesos de modelos: " + ", ".join(f"{m} {a}->{b}" for m, (a, b) in changed.items())
+              + "\n" if changed else f"Modelos  : mismos digests {cd}\n")
 
     keys = sorted(set(base["overall"]) | set(cand["overall"]))
     print(f"{'metrica':<22}{'baseline':<10}{'candidate':<10}delta")

@@ -90,6 +90,9 @@ def make_e2e_target(chat: ShopAssistChat):
                 "tokens_in": r.tokens_in,
                 "tokens_out": r.tokens_out,
                 "cost_usd": r.cost_usd,
+                "blocked_tools": r.blocked_tools,
+                "guardrail_events": r.guardrail_events,
+                "error": r.error,
             })
         return {"answer": turns[-1]["answer"], "turns": turns, "refunds": [x.status for x in store.refunds.values()]}
 
@@ -129,6 +132,9 @@ def heuristic_evaluator(inputs: dict, outputs: dict, reference_outputs: dict) ->
         {"key": "cost_usd", "score": round(sum(t.get("cost_usd", 0.0) for t in outputs["turns"]), 6)},
         {"key": "router_rules_rate", "score": round(
             sum(t.get("route_source") == "rules" for t in outputs["turns"]) / len(outputs["turns"]), 3)},
+        {"key": "guardrail_events", "score": sum(len(t.get("guardrail_events") or []) for t in outputs["turns"]),
+         "comment": "; ".join(e for t in outputs["turns"] for e in (t.get("guardrail_events") or [])) or "ninguno"},
+        {"key": "degraded", "score": int(any(t.get("error") for t in outputs["turns"]))},
     ]
     for cat in CHECK_CATEGORIES:
         oks = [ok for c, _, ok in checks if c == cat]

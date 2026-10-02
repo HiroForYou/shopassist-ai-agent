@@ -45,8 +45,19 @@ class Settings(BaseSettings):
     # Con Ollama el costo real es infraestructura (CPU/RAM/hora), no tokens. Ajustar al proveedor real.
     cost_input_per_1m: float = 1.0
     cost_output_per_1m: float = 4.0
-    # Router: "llm" (solo LLM, baseline Fase 4) | "hybrid" (reglas deterministas + LLM como fallback)
-    router_mode: str = "llm"
+    # Router: "hybrid" (reglas deterministas + LLM como fallback; adoptado en Fase 5: -20% latencia, -19% tokens,
+    # 0 regresiones en A/B misma sesion) | "llm" (solo LLM, baseline Fase 4)
+    router_mode: str = "hybrid"
+
+    # Guardrails y resiliencia (Fase 6)
+    guardrails_enabled: bool = True
+    llm_timeout_s: float = 240.0  # CPU: p95 por llamada ~60 s en Fase 5; el timeout corta cuelgues, no llamadas lentas
+    llm_retries: int = 1  # reintentos sobre el modelo principal antes del fallback
+
+    # API (Fase 7)
+    api_warmup: bool = True  # carga los modelos al arrancar: el primer usuario no paga el arranque en frio
+    api_max_concurrency: int = 1  # Ollama en CPU: turnos serializados; el resto espera en cola (metrica)
+    api_allow_reset: bool = True  # /admin/reset para benchmarks locales; false en cualquier entorno compartido
 
     app_today: date = date(2026, 9, 24)
 

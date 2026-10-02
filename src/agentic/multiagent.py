@@ -20,7 +20,16 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Annotated, Literal
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    AIMessageChunk,
+    BaseMessage,
+    HumanMessage,
+    RemoveMessage,
+    SystemMessage,
+    ToolMessage,
+)
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.errors import GraphRecursionError
@@ -30,6 +39,16 @@ from pydantic import BaseModel, Field
 
 from agentic.config import get_settings
 from agentic.evalkit import llm_step, normalize
+from agentic.guardrails import (
+    BLOCK_PREFIX,
+    DEGRADED_REPLY,
+    MAX_INPUT_CHARS,
+    SAFE_OUTPUT_REPLY,
+    TOO_LONG_REPLY,
+    check_output,
+    check_tool_call,
+    sanitize_input,
+)
 from agentic.observability import ObservabilityHandler, Sink, estimate_cost, log_event
 from agentic.rag import KnowledgeBase, make_search_tool
 from agentic.tools import check_refund_eligibility, create_refund_request, get_order
@@ -107,6 +126,8 @@ class ShopState(MessagesState):
     route_reason: str
     active_agent: str | None
     router_step: dict  # latencia/tokens de la ultima decision del router (observabilidad)
+    guard_feedback: str | None  # correccion del output guard para el reintento del agente (Fase 6)
+    output_retries: int  # reintentos de salida usados en el turno
 
 
 class RouteDecision(BaseModel):
@@ -224,6 +245,8 @@ def make_router_node(llm, mode: str = "llm") -> Callable:
             "route": target or END,
             "route_reason": f"{decision.route}: {decision.reason}",
             "router_step": router_step,
+            "guard_feedback": None,
+            "output_retries": 0,
         }
         if target:
             update["active_agent"] = target
@@ -238,18 +261,78 @@ def make_agent_node(name: str, llm, tools: list, prompt: str) -> Callable:
     bound = llm.bind_tools(tools)
 
     def agent(state: ShopState) -> dict:
-        ai = bound.invoke([SystemMessage(prompt), *state["messages"]])
+        messages = [SystemMessage(prompt), *state["messages"]]
+        if feedback := state.get("guard_feedback"):  # reintento ordenado por el output guard (no se persiste)
+            messages.append(SystemMessage(f"CORRECCION OBLIGATORIA: {feedback} Reescribe tu respuesta al cliente."))
+        ai = bound.invoke(messages)
         ai.name = name
-        return {"messages": [ai], "active_agent": name}
+        return {"messages": [ai], "active_agent": name, "guard_feedback": None}
 
     return agent
 
 
-def after_agent(name: str) -> Callable:
+def after_agent(name: str, guarded: bool) -> Callable:
     def route(state: ShopState) -> str:
-        return f"{name}_tools" if state["messages"][-1].tool_calls else END
+        if state["messages"][-1].tool_calls:
+            return f"{name}_tools"
+        return "output_guard" if guarded else END
 
     return route
+
+
+# ---------- guardrails (Fase 6) ----------
+
+def make_guarded_tool_node(agent: str, tools: list, sink: Sink) -> Callable:
+    """Punto de control de politicas: cada tool call pasa por check_tool_call antes de ejecutarse.
+    Las bloqueadas vuelven al LLM como ToolMessage de error (puede corregirse); las demas las ejecuta el ToolNode."""
+    tool_node = ToolNode(tools)
+    allowed = {t.name for t in tools}
+
+    def guarded(state: ShopState, config: RunnableConfig) -> dict:
+        ai: AIMessage = state["messages"][-1]
+        thread_id = (config.get("configurable") or {}).get("thread_id")
+        results: dict[str, ToolMessage] = {}
+        permitted = []
+        for call in ai.tool_calls:
+            reason = check_tool_call(agent, call, state["messages"], allowed)
+            if reason:
+                results[call["id"]] = ToolMessage(json.dumps({"error": f"{BLOCK_PREFIX}: {reason}"}, ensure_ascii=False),
+                                                  tool_call_id=call["id"], name=call["name"])
+                sink("guardrail_block", layer="tool", thread_id=thread_id, agent=agent, tool=call["name"],
+                     args=call["args"], reason=reason)
+            else:
+                permitted.append(call)
+        if permitted:
+            filtered = ai.model_copy(update={"tool_calls": permitted})
+            out = tool_node.invoke({**state, "messages": [*state["messages"][:-1], filtered]}, config)
+            results.update({m.tool_call_id: m for m in out["messages"]})
+        return {"messages": [results[c["id"]] for c in ai.tool_calls if c["id"] in results]}
+
+    return guarded
+
+
+def make_output_guard(sink: Sink) -> Callable:
+    """Revisa la respuesta final: si afirma algo que las tools no respaldan, la elimina y pide al agente un
+    reintento (1 vez); si vuelve a fallar, la reemplaza por una respuesta segura."""
+
+    def output_guard(state: ShopState, config: RunnableConfig) -> dict:
+        ai: AIMessage = state["messages"][-1]
+        reason = check_output(ai.name or "", ai.content, state["messages"][:-1])
+        if not reason:
+            return {}
+        thread_id = (config.get("configurable") or {}).get("thread_id")
+        retry = state.get("output_retries", 0) < 1
+        sink("guardrail_block", layer="output", thread_id=thread_id, agent=ai.name, reason=reason,
+             action="retry" if retry else "safe_reply", answer=ai.content[:300])
+        if retry:
+            return {"messages": [RemoveMessage(id=ai.id)], "guard_feedback": reason, "output_retries": 1}
+        return {"messages": [AIMessage(SAFE_OUTPUT_REPLY, id=ai.id, name=ai.name)]}
+
+    return output_guard
+
+
+def after_output_guard(state: ShopState) -> str:
+    return state["active_agent"] if state.get("guard_feedback") else END
 
 
 def after_tools(state: ShopState) -> str:
@@ -276,20 +359,29 @@ def prompt_version() -> str:
     return hashlib.sha1(text.encode()).hexdigest()[:8]
 
 
-def build_graph(llm, kb: KnowledgeBase | None = None, checkpointer=None, router_mode: str | None = None):
+def build_graph(llm, kb: KnowledgeBase | None = None, checkpointer=None, router_mode: str | None = None,
+                guardrails: bool | None = None, sink: Sink | None = None):
+    s = get_settings()
+    guarded = s.guardrails_enabled if guardrails is None else guardrails
+    sink = sink or log_event
     tools = agent_tools(kb or KnowledgeBase())
     g = StateGraph(ShopState)
-    g.add_node("router", make_router_node(llm, router_mode or get_settings().router_mode))
+    g.add_node("router", make_router_node(llm, router_mode or s.router_mode))
     for name in AGENTS:
         g.add_node(name, make_agent_node(name, llm, tools[name], PROMPTS[name]))
-        g.add_node(f"{name}_tools", ToolNode(tools[name]))
+        g.add_node(f"{name}_tools", make_guarded_tool_node(name, tools[name], sink) if guarded else ToolNode(tools[name]))
 
     g.add_edge(START, "router")
-    g.add_conditional_edges("router", lambda s: s["route"], [*AGENTS, END])
+    g.add_conditional_edges("router", lambda st: st["route"], [*AGENTS, END])
     for name in AGENTS:
-        g.add_conditional_edges(name, after_agent(name), [f"{name}_tools", END])
+        g.add_conditional_edges(name, after_agent(name, guarded), [f"{name}_tools", "output_guard" if guarded else END])
         g.add_conditional_edges(f"{name}_tools", after_tools, list(AGENTS))
-    return g.compile(checkpointer=checkpointer or InMemorySaver())
+    if guarded:
+        g.add_node("output_guard", make_output_guard(sink))
+        g.add_conditional_edges("output_guard", after_output_guard, [*AGENTS, END])
+    graph = g.compile(checkpointer=checkpointer or InMemorySaver())
+    graph.guardrails = guarded  # ShopAssistChat lo usa para la capa de entrada
+    return graph
 
 
 # ---------- ejecucion por turno ----------
@@ -307,6 +399,9 @@ class TurnResult:
     tokens_in: int = 0
     tokens_out: int = 0
     cost_usd: float = 0.0
+    blocked_tools: list[str] = field(default_factory=list)  # tool calls bloqueadas por guardrails (no ejecutadas)
+    guardrail_events: list[str] = field(default_factory=list)  # "input:tarjeta", "tool:create_refund_request", ...
+    error: str | None = None  # fallo no recuperable: se respondio en modo degradado
 
 
 def update_to_steps(node: str, update: dict) -> list[dict]:
@@ -325,8 +420,14 @@ def update_to_steps(node: str, update: dict) -> list[dict]:
     if node in AGENTS:
         return [llm_step(m, node) for m in update["messages"]]
     if node.endswith("_tools"):
-        return [{"type": "tool", "agent": node.removesuffix("_tools"), "name": m.name, "output": m.content}
+        return [{"type": "tool", "agent": node.removesuffix("_tools"), "name": m.name, "output": m.content,
+                 "blocked": BLOCK_PREFIX in str(m.content)}
                 for m in update["messages"]]
+    if node == "output_guard" and update.get("messages"):
+        msg = update["messages"][0]
+        action = "retry" if isinstance(msg, RemoveMessage) else "safe_reply"
+        return [{"type": "guardrail", "layer": "output", "action": action,
+                 "reason": update.get("guard_feedback") or SAFE_OUTPUT_REPLY}]
     return []
 
 
@@ -344,6 +445,22 @@ class ShopAssistChat:
 
     def send(self, thread_id: str, text: str, on_step: Callable[[dict], None] | None = None,
              tags: list[str] | None = None, metadata: dict | None = None) -> TurnResult:
+        """Turno completo (sin tokens): consume iter_turn y devuelve el resultado final."""
+        result = None
+        for item in self.iter_turn(thread_id, text, tags=tags, metadata=metadata):
+            if item[0] == "step" and on_step:
+                on_step(item[1])
+            elif item[0] == "result":
+                result = item[1]
+        return result
+
+    def iter_turn(self, thread_id: str, text: str, tags: list[str] | None = None, metadata: dict | None = None,
+                  stream_tokens: bool = False):
+        """Generador de un turno (Fase 7). Emite, en orden de ocurrencia:
+            ("step", dict)              paso del flujo (route, llm, tool, guardrail)
+            ("token", nodo, texto)      fragmento de texto de un agente (solo si stream_tokens=True)
+            ("result", TurnResult)      siempre al final
+        """
         turn = self._turns[thread_id] = self._turns.get(thread_id, 0) + 1
         obs = ObservabilityHandler(thread_id, turn, self.sink)
         config = {
@@ -357,22 +474,55 @@ class ShopAssistChat:
         flow: list[dict] = []
         route, route_source = "", ""
         start = time.perf_counter()
-        hit_limit = False
+        hit_limit, error, guard_events = False, None, []
+
+        # Capa de entrada (Fase 6): ANTES del grafo, para que el dato sensible no llegue al LLM, a LangSmith ni a logs
+        if getattr(self.graph, "guardrails", False):
+            text, findings = sanitize_input(text)
+            for f in findings:
+                guard_events.append(f"input:{f}")
+                self.sink("guardrail_block", layer="input", thread_id=thread_id, finding=f)
+            if len(text) > MAX_INPUT_CHARS:
+                self.sink("guardrail_block", layer="input", thread_id=thread_id, finding="too_long", chars=len(text))
+                yield ("result", TurnResult(answer=TOO_LONG_REPLY, route="input_guard",
+                                            guardrail_events=["input:too_long"]))
+                return
+
+        # "messages" agrega los tokens de cada llamada al LLM (LangGraph fuerza streaming via callbacks)
+        modes = ["updates", "messages"] if stream_tokens else ["updates"]
         try:
-            for chunk in self.graph.stream({"messages": [HumanMessage(text)]}, config, stream_mode="updates"):
-                for node, update in chunk.items():
+            for mode, payload in self.graph.stream({"messages": [HumanMessage(text)]}, config, stream_mode=modes):
+                if mode == "messages":
+                    chunk, meta = payload
+                    node = (meta or {}).get("langgraph_node")
+                    if node in AGENTS and isinstance(chunk, AIMessageChunk) and isinstance(chunk.content, str) \
+                            and chunk.content:
+                        yield ("token", node, chunk.content)
+                    continue
+                for node, update in payload.items():
                     for step in update_to_steps(node, update or {}):
                         if step["type"] == "route":
                             route, route_source = step["route"], step.get("source", "llm")
+                        elif step["type"] == "guardrail":
+                            guard_events.append(f"output:{step['action']}")
+                        elif step["type"] == "tool" and step.get("blocked"):
+                            guard_events.append(f"tool:{step['name']}")
                         flow.append(step)
-                        if on_step:
-                            on_step(step)
+                        yield ("step", step)
         except GraphRecursionError:
             hit_limit = True
+        except Exception as exc:  # resiliencia: el cliente recibe una respuesta degradada, no un stack trace
+            error = f"{type(exc).__name__}: {exc}"[:300]
+            self.sink("turn_error", thread_id=thread_id, turn=turn, error=error)
 
         last = self.graph.get_state(config).values["messages"][-1]
-        answer = MAX_STEPS_MESSAGE if hit_limit or not isinstance(last, AIMessage) else last.content
-        tools_called = [s["name"] for s in flow if s["type"] == "tool"]
+        if error:
+            answer = DEGRADED_REPLY
+        elif hit_limit or not isinstance(last, AIMessage):
+            answer = MAX_STEPS_MESSAGE
+        else:
+            answer = last.content
+        tools_called = [s["name"] for s in flow if s["type"] == "tool" and not s.get("blocked")]
         result = TurnResult(
             answer=answer,
             route=route,
@@ -385,13 +535,17 @@ class ShopAssistChat:
             tokens_in=obs.tokens_in,
             tokens_out=obs.tokens_out,
             cost_usd=estimate_cost(obs.tokens_in, obs.tokens_out),
+            blocked_tools=[s["name"] for s in flow if s["type"] == "tool" and s.get("blocked")],
+            guardrail_events=guard_events,
+            error=error,
         )
         self.sink(
             "turn_end", thread_id=thread_id, turn=turn, route=route, route_source=route_source,
-            agents=result.agents, tools=tools_called,
+            agents=result.agents, tools=tools_called, blocked_tools=result.blocked_tools,
+            guardrail_events=guard_events, error=error,
             handoffs=[t for t in tools_called if t.startswith("transfer_to_")],
             latency_s=result.elapsed_s, llm_calls=obs.llm_calls, tool_errors=obs.tool_errors,
             tokens_in=obs.tokens_in, tokens_out=obs.tokens_out, cost_usd=result.cost_usd, hit_limit=hit_limit,
             **{k: v for k, v in (metadata or {}).items() if k in ("case_id",)},
         )
-        return result
+        yield ("result", result)

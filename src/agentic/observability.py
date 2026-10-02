@@ -52,7 +52,21 @@ def _configure() -> None:
     _logger.propagate = False  # no mezclar con la salida de consola de los scripts
 
 
+_listeners: list[Callable[[str, dict], None]] = []
+
+
+def add_listener(fn: Callable[[str, dict], None]) -> None:
+    """Suscribe una funcion a todos los eventos (Fase 7: metricas de Prometheus). Independiente de OBS_ENABLED."""
+    if fn not in _listeners:
+        _listeners.append(fn)
+
+
 def log_event(event: str, level: int = logging.INFO, **fields: Any) -> None:
+    for fn in _listeners:
+        try:
+            fn(event, fields)
+        except Exception:  # una metrica rota nunca debe tumbar un turno
+            pass
     if not get_settings().obs_enabled:
         return
     _configure()

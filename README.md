@@ -1,73 +1,117 @@
-# shopassist-agentic
+# ShopAssist agentic
 
-Agente de soporte de reembolsos para una tienda online, construido por fases con LLM local:
-tool calling, multi-agent, RAG, evaluacion, observabilidad, guardrails y streaming.
+Asistente de soporte de reembolsos para una tienda online, construido con un LLM local y organizado en ocho fases:
+agente con tools, multi-agent, RAG, evaluación, observabilidad, guardrails y streaming.
 
-**Dominio:** ShopAssist. Reglas de negocio deterministas (plazo, categoria, monto) que permiten medir si el agente acierta.
+Las reglas de negocio (plazo de 30 días, productos digitales, montos sobre 200 USD) son deterministas, por lo que
+cada respuesta del agente se puede verificar contra un resultado esperado.
 
-**Stack:** Ollama (LLM local) · LangChain · LangGraph · LangSmith · Qdrant · Docker · pytest.
+![Arquitectura en ejecución](docs/diagramas/_capturas/arquitectura-runtime/arquitectura-runtime.visual-check.1440x900.light.png)
+
+## Stack
+
+| Capa | Tecnología |
+|---|---|
+| LLM local | Ollama: `qwen3.5:4b` (principal), `granite4.1:3b` (fallback), `qwen3-embedding:0.6b` (embeddings) |
+| Orquestación | LangChain, LangGraph |
+| Recuperación | Qdrant |
+| Evaluación y trazas | LangSmith |
+| API | FastAPI con SSE |
+| Métricas | Prometheus, Grafana |
+| Infraestructura | Docker Compose sobre WSL2 |
+| Tests | pytest (sin LLM) |
+
+## Fases
+
+| Fase | Tema | Contenido | Resultado principal |
+|---|---|---|---|
+| 0 | [Setup](docs/fase-00-setup.md) | Docker, Ollama, LangSmith, healthcheck | Entorno reproducible en CPU |
+| 1 | [Agente con tools](docs/fase-01-agente-tools.md) | Loop agéntico manual, tool calling, errores como datos | 11/15 casos |
+| 2 | [Multi-agent](docs/fase-02-multiagent.md) | Router, especialistas, handoffs, memoria por conversación | 11/12 casos |
+| 3 | [RAG](docs/fase-03-rag.md) | Políticas en Qdrant, citas, evaluación de retrieval | hit@3 = 1.00, MRR = 0.93 |
+| 4 | [Evaluación](docs/fase-04-evaluacion.md) | Datasets en LangSmith, LLM-as-judge calibrado, gate de regresión | Juez de reglas con 0 FP |
+| 5 | [Observabilidad](docs/fase-05-observabilidad.md) | Logs JSON, métricas por nodo, router híbrido | -20 % latencia, -19 % tokens |
+| 6 | [Guardrails](docs/fase-06-guardrails.md) | Entrada, políticas por tool, salida, resiliencia | Reembolsos sin confirmación: 0/9 → 9/9 |
+| 7 | [Streaming](docs/fase-07-streaming.md) | API con SSE, TTFT, backpressure, Prometheus y Grafana | Primer progreso en 0.01-0.04 s |
+
+Documentación complementaria:
+
+| Documento | Contenido |
+|---|---|
+| [docs/RESULTADOS.md](docs/RESULTADOS.md) | Métricas por fase, decisiones de diseño y limitaciones |
+| [docs/diagramas/](docs/diagramas/README.md) | Arquitectura, secuencias del flujo de reembolso, ciclo de vida y ciclo de evaluación |
 
 ## Requisitos
 
-- Docker Desktop (o Python 3.11+ para ejecucion local).
-- ~8 GB de RAM libres para los modelos de Ollama (CPU funciona; GPU NVIDIA opcional, ver [Fase 0](docs/fase-00-setup.md)).
-- Cuenta gratuita en [LangSmith](https://smith.langchain.com) para trazas y experimentos.
+| Recurso | Mínimo |
+|---|---|
+| Docker Desktop | Backend WSL2 (o Python 3.11+ para ejecución local) |
+| RAM para WSL2 | 8 GB (modelos de Ollama en CPU; GPU NVIDIA opcional, ver [Fase 0](docs/fase-00-setup.md)) |
+| Disco | ~7 GB para modelos e imágenes |
+| LangSmith | Cuenta gratuita y API key |
 
-## Roadmap
+## Inicio rápido
 
-| Fase | Tema | Concepto que practica | Estado |
-|---|---|---|---|
-| 0 | [Setup](docs/fase-00-setup.md) | Docker, Ollama, LangSmith, healthcheck | Listo |
-| 1 | [Agente con tools](docs/fase-01-agente-tools.md) | Loop agentico manual, tool calling, errores de tools | Listo |
-| 2 | [Multi-agent con LangGraph](docs/fase-02-multiagent.md) | Router, especialistas, handoffs, estado compartido, memoria (checkpointer) | Listo |
-| 3 | [RAG](docs/fase-03-rag.md) | Politicas en Qdrant, embeddings Ollama, citas, eval de retrieval (hit@k, MRR) | Listo |
-| 4 | [Evaluacion](docs/fase-04-evaluacion.md) | Datasets en LangSmith, experimentos, LLM-as-judge calibrado, consistencia, gate de regresion | Listo |
-| 5 | [Observabilidad](docs/fase-05-observabilidad.md) | Logs JSON por evento, metricas p50/p95, costo, router hibrido, runbook de debugging | Listo |
-| 6 | Guardrails | Validacion input/output, permisos por tool, human-in-the-loop, fallback de modelo | Pendiente |
-| 7 | Streaming | FastAPI + SSE, time-to-first-token, metricas de latencia | Pendiente |
+```powershell
+Copy-Item .env.example .env                 # completar LANGSMITH_API_KEY
+docker compose up -d ollama qdrant
+docker compose run --rm ollama-pull         # ~6 GB la primera vez
+docker compose build app api
+docker compose run --rm app python scripts/fase3_ingest.py
+docker compose run --rm app python scripts/fase0_healthcheck.py
+docker compose run --rm app pytest -q
+
+# chat por consola con el sistema completo
+docker compose run --rm app python scripts/fase2_chat.py
+
+# API con streaming y monitoreo
+docker compose up -d api
+docker compose --profile monitoring up -d
+docker compose run --rm app python scripts/fase7_client.py chat
+```
+
+| Servicio | URL |
+|---|---|
+| API (Swagger) | http://localhost:8000/docs |
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3000/d/shopassist/shopassist-api-y-agentes |
+| Qdrant | http://localhost:6333/dashboard |
 
 ## Estructura
 
 ```
-shopassist-agentic/
-├── docker-compose.yml     # ollama + ollama-pull + qdrant + app
-├── knowledge/             # politicas de la tienda (base del RAG)
-├── Dockerfile             # imagen de la app (python 3.11)
-├── .env.example           # copiar a .env
+ai-agentic/
+├── docker-compose.yml     # ollama, qdrant, app, api; ollama-pull (perfil tools); prometheus y grafana (perfil monitoring)
+├── Dockerfile             # imagen Python 3.11 de app y api
+├── .env.example           # configuración (copiar a .env)
+├── infra/                 # Prometheus y dashboard de Grafana
+├── knowledge/             # políticas de la tienda (base del RAG)
 ├── src/agentic/
-│   ├── config.py          # settings (.env)
-│   ├── llm.py             # factory de ChatOllama
-│   ├── agent.py           # Fase 1: loop agentico
-│   ├── multiagent.py      # Fase 2-3: grafo LangGraph (router + 3 especialistas)
-│   ├── rag.py             # Fase 3: chunking, embeddings, Qdrant, tool search_policies
+│   ├── config.py          # configuración desde .env
+│   ├── llm.py             # ChatOllama, modelo resiliente, digests de modelos
+│   ├── agent.py           # Fase 1: loop agéntico
+│   ├── multiagent.py      # Fases 2-7: grafo LangGraph, router híbrido, ejecución por turno
+│   ├── rag.py             # Fase 3: chunking, embeddings, Qdrant, search_policies
 │   ├── tools.py           # tools del dominio
-│   ├── evalkit.py         # utilidades de evaluacion (flujo, checks, metricas, reportes)
-│   ├── graph_eval.py      # runner de casos multi-turno contra el grafo
-│   ├── experiments.py     # Fase 4: datasets, target, evaluadores, regresiones
-│   ├── judges.py          # Fase 4: LLM-as-judge (groundedness, policy_compliance)
-│   ├── facts.py           # Fase 4: hechos verificables por codigo (R2/R3)
-│   ├── observability.py   # Fase 5: logs JSON, callback por nodo, costo
-│   └── domain/            # pedidos, politica de reembolso
-├── evals/                 # casos de evaluacion por fase (JSON)
-├── scripts/               # entrypoint por fase (chat, eval, healthcheck)
-├── reports/               # reportes JSON de evaluacion (ignorado por git)
-├── logs/                  # logs JSON de observabilidad (ignorado por git)
-├── tests/                 # tests sin LLM (deterministas)
-└── docs/                  # guia de cada fase
+│   ├── evalkit.py         # checks, métricas y reportes de evaluación
+│   ├── graph_eval.py      # runner de casos multi-turno
+│   ├── experiments.py     # Fase 4: datasets, evaluadores, regresiones
+│   ├── judges.py          # Fase 4: LLM-as-judge
+│   ├── facts.py           # Fase 4: hechos verificables por código
+│   ├── observability.py   # Fase 5: logs JSON y callback por nodo
+│   ├── guardrails.py      # Fase 6: entrada, tools, salida, resiliencia
+│   ├── api.py             # Fase 7: FastAPI, SSE, backpressure
+│   ├── metrics.py         # Fase 7: métricas Prometheus
+│   └── domain/            # pedidos y política de reembolso
+├── evals/                 # casos de evaluación (JSON)
+├── scripts/               # entrypoints por fase
+├── tests/                 # 156 tests sin LLM
+├── reports/               # reportes de evaluación (no versionado)
+├── logs/                  # logs JSON (no versionado)
+└── docs/                  # guías por fase, resultados y diagramas
 ```
 
-## Inicio rapido
+## Ejecución local sin Docker para el código
 
-```powershell
-git clone https://github.com/<usuario>/shopassist-agentic.git
-cd shopassist-agentic
-Copy-Item .env.example .env        # completar LANGSMITH_API_KEY
-docker compose up -d ollama qdrant
-docker compose run --rm ollama-pull
-docker compose run --rm app python scripts/fase3_ingest.py
-docker compose run --rm app python scripts/fase0_healthcheck.py
-docker compose run --rm app python scripts/fase1_agent.py
-docker compose run --rm app pytest -q
-```
-
-Ejecucion local con `env_ml` (Ollama igual en Docker): ver [Fase 0](docs/fase-00-setup.md#opcion-b-entorno-local-env_ml).
+Ollama y Qdrant siguen en Docker; scripts y tests corren con un entorno Python local (ver
+[Fase 0](docs/fase-00-setup.md#opción-b-entorno-python-local)).

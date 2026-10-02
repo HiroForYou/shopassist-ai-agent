@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "ab16f6eb-0ea8-48ed-a5c0-dfd94146cdb4",
+  "status": "current",
+  "command": "deliver",
+  "type": "sequence",
+  "input": "C:\\Users\\CristhianSanchez(Con\\Downloads\\self-learn\\ai-agentic\\docs\\diagramas\\secuencia-turno2-confirmacion\\candidate.json",
+  "output": "C:\\Users\\CristhianSanchez(Con\\Downloads\\self-learn\\ai-agentic\\docs\\diagramas\\secuencia-turno2-confirmacion\\secuencia-turno2-confirmacion.html",
+  "specification": {
+    "sha256": "4aeb73d8b2b1bd7c478a9ba27bd026b4a4806f01fa0388e3fe099a754fcb75c5",
+    "bytes": 34383
+  },
+  "artifact": {
+    "sha256": "4018c0d966edba7bc228212389e9094d8525a80d5ad579dbc181bbb977d07a13",
+    "bytes": 763376
+  }
+}
