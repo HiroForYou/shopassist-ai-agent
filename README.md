@@ -2,11 +2,11 @@
 
 **English** · [Español](README.es.md)
 
-Refund-support assistant for an online store, built on a local LLM and organized in eight phases:
-tool-using agent, multi-agent, RAG, evaluation, observability, guardrails and streaming.
+Refund-support assistant for an online store, built on a local LLM. Developed in eight phases (0-7), from
+environment setup to streaming; each phase has its own guide and measured result.
 
-The business rules (30-day window, digital products, amounts over 200 USD) are deterministic, so every
-agent response can be checked against an expected result.
+Business rules (30-day window, digital products, amounts over 200 USD) are deterministic: every agent response
+has an expected result to check against.
 
 ![Runtime architecture](docs/diagramas/_capturas/arquitectura-runtime/arquitectura-runtime.visual-check.1440x900.light.png)
 
@@ -84,7 +84,7 @@ docker compose run --rm app python scripts/fase7_client.py chat
 ## Project structure
 
 ```
-ai-agentic/
+shopassist-ai-agent/
 ├── docker-compose.yml     # ollama, qdrant, app, api; ollama-pull (tools profile); prometheus and grafana (monitoring profile)
 ├── Dockerfile             # Python 3.11 image for app and api
 ├── .env.example           # configuration (copy to .env)

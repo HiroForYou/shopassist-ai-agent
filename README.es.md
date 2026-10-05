@@ -2,11 +2,11 @@
 
 [English](README.md) · **Español**
 
-Asistente de soporte de reembolsos para una tienda online, construido con un LLM local y organizado en ocho fases:
-agente con tools, multi-agent, RAG, evaluación, observabilidad, guardrails y streaming.
+Asistente de soporte de reembolsos para una tienda online, construido con un LLM local. Desarrollado en ocho fases
+(0-7), desde la configuración del entorno hasta streaming; cada fase tiene su guía y su resultado medido.
 
-Las reglas de negocio (plazo de 30 días, productos digitales, montos sobre 200 USD) son deterministas, por lo que
-cada respuesta del agente se puede verificar contra un resultado esperado.
+Reglas de negocio (plazo de 30 días, productos digitales, montos sobre 200 USD) deterministas: cada respuesta del
+agente tiene un resultado esperado contra el cual verificarse.
 
 ![Arquitectura en ejecución](docs/diagramas/_capturas/arquitectura-runtime/arquitectura-runtime.visual-check.1440x900.light.png)
 
@@ -82,7 +82,7 @@ docker compose run --rm app python scripts/fase7_client.py chat
 ## Estructura
 
 ```
-ai-agentic/
+shopassist-ai-agent/
 ├── docker-compose.yml     # ollama, qdrant, app, api; ollama-pull (perfil tools); prometheus y grafana (perfil monitoring)
 ├── Dockerfile             # imagen Python 3.11 de app y api
 ├── .env.example           # configuración (copiar a .env)
@@ -113,7 +113,7 @@ ai-agentic/
 └── docs/                  # guías por fase, resultados y diagramas
 ```
 
-## Ejecución local sin Docker para el código
+## Ejecución local del código sin Docker
 
 Ollama y Qdrant siguen en Docker; scripts y tests corren con un entorno Python local (ver
 [Fase 0](docs/fase-00-setup.md#opción-b-entorno-python-local)).
